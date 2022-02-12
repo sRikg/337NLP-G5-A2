@@ -13,7 +13,7 @@ parser.add_argument('--data', type=str, default='../wiki.')
 parser.add_argument('--emb', type=int, default=100)
 parser.add_argument('--num_hidden', type=int, default=100)
 parser.add_argument('--epochs', type=int, default=20)
-parser.add_argument('--lr', type=float, default=0.1)
+parser.add_argument('--lr', type=float, default=10)
 parser.add_argument('--num_layers', type=int, default=2)
 parser.add_argument('--batch_size', type=int, default=20)
 parser.add_argument('--window_size', type=int, default=30)
@@ -28,6 +28,8 @@ torch.manual_seed(args.seed)
 # Set the device.
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+
+# Create a batch from the given data.
 def create_batch(data, batch_size):
     num_batch = data.size(0) // batch_size
     data = data.narrow(0, 0, num_batch*batch_size)
@@ -35,6 +37,8 @@ def create_batch(data, batch_size):
 
     return data.to(device)
 
+
+# Provide a batch within the source.
 def get_batch(source, i):
     seq_len = min(args.window_size, len(source) - 1 - i)
     data = source[i:i+seq_len]
@@ -42,6 +46,8 @@ def get_batch(source, i):
 
     return data, target
 
+
+# Clear the hidden from gradient.
 def clear_hidden(h):
     if isinstance(h, torch.Tensor):
         return h.detach()
@@ -56,7 +62,7 @@ test_data = create_batch(corpus.test, args.batch_size)
 
 # Model definition.
 num_tokens = len(corpus.encoding.index2word)
-model = model.LSTM(args.num_layers, num_tokens, args.emb, args.num_hidden)
+model = model.LSTM(args.num_layers, num_tokens, args.emb, args.num_hidden).to(device)
 criterion = nn.NLLLoss()
 
 # Train
@@ -86,18 +92,19 @@ def train():
             print('epoch {}, loss {}, perplexity {}'.format(epoch, tmp_loss, math.exp(tmp_loss)))
             total_loss = 0
 
+
 # Eval or test.
 def evaluate(data):
     model.eval()
-    total_loss = 0
+    total_loss = 0.
     hidden = model.init_hidden(args.batch_size)
 
     with torch.no_grad():
         for i in range(0, data.size(0)-1, args.window_size):
             x, targets = get_batch(data, i)
-            x, hidden = model(x, hidden)
+            output, hidden = model(x, hidden)
             hidden = clear_hidden(hidden)
-            total_loss += criterion(x, targets).item() * len(x)
+            total_loss += criterion(output, targets).item() * len(x)
 
     return total_loss / (len(data) - 1)
 
