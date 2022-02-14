@@ -1,15 +1,13 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import argparse
 import math
-
-import model
-import data
 
 
 # Set arguments for the model training.
 parser = argparse.ArgumentParser()
-parser.add_argument('--data', type=str, default='../wiki.')
+parser.add_argument('--data', type=str, default='wiki.')
 parser.add_argument('--emb', type=int, default=100)
 parser.add_argument('--num_hidden', type=int, default=100)
 parser.add_argument('--epochs', type=int, default=20)
@@ -27,6 +25,81 @@ torch.manual_seed(args.seed)
 
 # Set the device.
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+class Corpus():
+    """ Transform words to index then to tensors."""
+    def __init__(self, path):
+        self.encoding = Encoding()
+        self.train = self.process(path + 'train.txt')
+        self.val = self.process(path + 'valid.txt')
+        self.test = self.process(path + 'test.txt')
+
+    def process(self, path):
+        with open(path, 'r') as f:
+            all = []
+            for line in f:
+                words = line.split() + ['<eos>']
+                ids = []
+                for w in words:
+                    ids.append(self.encoding.encode(w))
+                all.append(torch.tensor(ids).type(torch.int64))
+            res = torch.cat(all)
+
+        return res
+
+
+class Encoding():
+    """ Encode word to index"""
+    def __init__(self):
+        self.word2index = {}
+        self.index2word = []
+
+    def encode(self, word):
+        if word not in self.word2index:
+            self.index2word.append(word)
+            self.word2index[word] = len(self.index2word) - 1
+
+        return self.word2index[word]
+
+
+class LSTM(nn.Module):
+    """
+    LSTM model in encoder-decoder structure.
+    """
+
+    def __init__(self, num_layers, num_tokens, dim_emb, num_hiddens):
+        super(LSTM, self).__init__()
+        self.num_tokens = num_tokens
+        self.dropout = nn.Dropout(0.3)
+        self.encoder = nn.Embedding(num_tokens, dim_emb)
+        self.lstm = nn.LSTM(dim_emb, num_hiddens, num_layers, dropout=0.3)
+        self.decoder = nn.Linear(num_hiddens, num_tokens)
+        self.num_layers = num_layers
+        self.num_hidden = num_hiddens
+        # Tie weights
+        self.decoder.weight = self.encoder.weight
+        self.init_weights()
+
+    def forward(self, input, hidden):
+        x = self.encoder(input)
+        x = self.dropout(x)
+        x, h = self.lstm(x, hidden)
+        x = self.dropout(x)
+        x = self.decoder(x)
+        x = x.view(-1, self.num_tokens)
+
+        return F.log_softmax(x, dim=1), h
+
+    def init_weights(self):
+        nn.init.uniform_(self.encoder.weight, -0.1, 0.1)
+        nn.init.uniform_(self.decoder.weight, -0.1, 0.1)
+
+    def init_hidden(self, batch_size):
+        weight = next(self.parameters())
+
+        return weight.new_zeros(self.num_layers, batch_size, self.num_hidden), \
+               weight.new_zeros(self.num_layers, batch_size, self.num_hidden)
 
 
 # Create a batch from the given data.
@@ -54,16 +127,23 @@ def clear_hidden(h):
     return tuple(clear_hidden(v) for v in h)
 
 
-corpus = data.Corpus(args.data)
+corpus = Corpus(args.data)
 
 train_data = create_batch(corpus.train, args.batch_size)
 val_data = create_batch(corpus.val, args.batch_size)
 test_data = create_batch(corpus.test, args.batch_size)
+# print('corpus.train.shape: {}'.format(corpus.train.shape))
+# print('train_data.shape: {}'.format(train_data.shape))
 
 # Model definition.
 num_tokens = len(corpus.encoding.index2word)
-model = model.LSTM(args.num_layers, num_tokens, args.emb, args.num_hidden).to(device)
+model = LSTM(args.num_layers, num_tokens, args.emb, args.num_hidden).to(device)
 criterion = nn.NLLLoss()
+
+train_ppl_history = []
+val_ppl_history = []
+test_ppl_history = []
+
 
 # Train
 def train():
@@ -74,6 +154,9 @@ def train():
 
     for batch, i in enumerate(range(0, train_data.size(0) - 1, args.window_size)):
         data, targets = get_batch(train_data, i)
+        # print('data.shape: {}'.format(data.shape))
+        # print('data: {}'.format(data))
+        # print('targets.shape: {}'.format(targets.shape))
         model.zero_grad()
 
         hidden = clear_hidden(hidden)
@@ -91,6 +174,8 @@ def train():
             tmp_loss = total_loss / args.log_interval
             print('epoch {}, loss {}, perplexity {}'.format(epoch, tmp_loss, math.exp(tmp_loss)))
             total_loss = 0
+
+            train_ppl_history.append([epoch, batch, math.exp(tmp_loss)])
 
 
 # Eval or test.
@@ -116,7 +201,13 @@ for epoch in range(1, args.epochs + 1):
     # Eval
     val_loss = evaluate(val_data)
     print('epoch {}, val loss {}, val perplexity {}'.format(epoch, val_loss, math.exp(val_loss)))
+    val_ppl_history.append([epoch, math.exp(val_loss)])
 
     # Testing
     test_loss = evaluate(test_data)
     print('epoch {}, test loss {}, test perplexity {}'.format(epoch, test_loss, math.exp(test_loss)))
+    test_ppl_history.append([epoch, math.exp(test_loss)])
+
+print('Train perplexity history: {}'.format(train_ppl_history))
+print('Val perplexity history: {}'.format(val_ppl_history))
+print('Test perplexity history: {}'.format(test_ppl_history))
