@@ -2,9 +2,10 @@ import torch
 import torch.nn as nn
 import argparse
 import math
-
 import model
 import data
+import matplotlib.pyplot as plt
+import time
 
 
 # Set arguments for the model training.
@@ -67,18 +68,22 @@ num_sample_train = train_data.shape[0]*train_data.shape[1]
 num_sample_val = val_data.shape[0]*val_data.shape[1]
 num_sample_test = test_data.shape[0]*test_data.shape[1]
 
+# print('# of train samples:', num_sample_train)
+# print('# of val samples:', num_sample_val)
+# print('# of test samples:', num_sample_test)
 
+"""
 # Preview data
 data, targets = get_batch(train_data, 0)
 print('size of data and target:', data.shape,targets.shape)  # torch.Size([30,20]) torch.Size([600])
 # print('view data', data[1:10,:])
 # print('view target', targets[:200])
-
+"""
 
 
 # Model definition.
 num_tokens = len(corpus.encoding.index2word)
-model = model.RNN(args.num_layers, num_tokens, args.emb, args.batch_size).to(device)
+model = model.RNN(args.num_layers, num_tokens, args.emb, args.batch_size, device).to(device)
 criterion = nn.NLLLoss()
 optimizer = torch.optim.Adam(model.parameters())
 
@@ -86,15 +91,13 @@ optimizer = torch.optim.Adam(model.parameters())
 def train():
     model.train()
     total_loss = 0
-
-    # hidden = model.init_hidden(args.batch_size)
-
-    for batch, i in enumerate(range(0, train_data.size(0) - 1, args.window_size)):
+    # actually time steps, not batch
+    for batch, i in enumerate(range(0, train_data.size(1) - 1, args.window_size)):
         data, targets = get_batch(train_data, i)
+        data = data.to(device)
+        targets = targets.to(device)
         model.zero_grad()
 
-        # hidden = clear_hidden(hidden)
-        print('model on CUDA?', next(model.parameters()).is_cuda)
         x = model(data)
         loss = criterion(x, targets)
         loss.backward()
@@ -109,41 +112,38 @@ def train():
         total_loss += loss.item()
 
         if batch % args.log_interval == 0 and batch > 0:
-            tmp_loss = total_loss / args.log_interval
-            print('epoch {}, loss {}, perplexity {}'.format(epoch, tmp_loss, math.exp(tmp_loss)))
-            total_loss = 0
-    perplex = math.exp(total_loss / num_sample_train)
-    return perplex
+            avg_loss = total_loss / (batch + 1)
+            print('epoch {}, perplexity {}'.format(epoch, round(math.exp(avg_loss), 2)))
+
+    perplex = math.exp(total_loss / (train_data.size(1) // args.window_size))
+    return round(perplex, 2)
 
 
 # Eval or test.
-def evaluate(data, test = False):
+def evaluate(data, test=False):
     model.eval()
     total_loss = 0.
-    # hidden = model.init_hidden(args.batch_size)
 
     with torch.no_grad():
-        for i in range(0, data.size(0)-1, args.window_size):
+        for i in range(0, data.size(1)-1, args.window_size):
             x, targets = get_batch(data, i)
             output = model(x)
-            # hidden = clear_hidden(hidden)
             total_loss += criterion(output, targets).item()
-    if not test:
-        perplex = math.exp(total_loss / num_sample_val)
-    else:
-        perplex = math.exp(total_loss / num_sample_test)
+    perplex = math.exp(total_loss / (data.size(1) // args.window_size))
 
-    return perplex
+    return round(perplex, 2)
 
 
 # Training process.
 train_perplex = []
 eval_perplex = []
 test_perplex = []
+start_time = time.time()
 
 for epoch in range(1, args.epochs + 1):
     # train
     train_perplex.append(train())
+    print('epoch {}, train perplexity {}'.format(epoch, train_perplex[-1]))
 
     # Eval
     eval_perplex.append(evaluate(val_data))
@@ -151,7 +151,22 @@ for epoch in range(1, args.epochs + 1):
 
     # Testing
     test_perplex.append(evaluate(test_data, test=True))
-    print('epoch {}, test perplexity {}'.format(epoch, test_perplex))
+    print('epoch {}, test perplexity {}'.format(epoch, test_perplex[-1]))
+
+elapsed = (time.time() - start_time)/60
+print(f'Total Running Time: {elapsed:.2f} min')
+
+# Plot perplexities
+fig = plt.figure()
+ax = plt.subplot(111)
+ax.plot(range(1, args.epochs+1), train_perplex, label='Training')
+ax.plot(range(1, args.epochs+1), eval_perplex, label='Validation')
+ax.plot(range(1, args.epochs+1), test_perplex, label='Test')
+ax.legend(loc='upper right')
+plt.ylabel('Perplexity')
+plt.xlabel('Epoch')
+plt.show()
+fig.savefig(f'Figures/perplexity_lr{args.lr}.png')
 
 # final perplexity
 print(f'final perplexities: train - {train_perplex[-1]}, eval - {eval_perplex[-1]},'
