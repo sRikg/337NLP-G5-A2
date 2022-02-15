@@ -14,12 +14,14 @@ parser.add_argument('--data', type=str, default='../wiki.')
 parser.add_argument('--emb', type=int, default=100)
 parser.add_argument('--num_hidden', type=int, default=100)
 parser.add_argument('--epochs', type=int, default=20)
-parser.add_argument('--lr', type=float, default=0.1)
+parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--num_layers', type=int, default=2)
 parser.add_argument('--batch_size', type=int, default=20)
 parser.add_argument('--window_size', type=int, default=30)
 parser.add_argument('--seed', type=int, default=337)
 parser.add_argument('--log_interval', type=int, default=300)
+parser.add_argument('--optim', type=str, default='Adam')
+parser.add_argument('--weight_decay', type=float, default=0.00005)
 
 args = parser.parse_args()
 
@@ -68,10 +70,6 @@ num_sample_train = train_data.shape[0]*train_data.shape[1]
 num_sample_val = val_data.shape[0]*val_data.shape[1]
 num_sample_test = test_data.shape[0]*test_data.shape[1]
 
-# print('# of train samples:', num_sample_train)
-# print('# of val samples:', num_sample_val)
-# print('# of test samples:', num_sample_test)
-
 """
 # Preview data
 data, targets = get_batch(train_data, 0)
@@ -85,7 +83,11 @@ print('size of data and target:', data.shape,targets.shape)  # torch.Size([30,20
 num_tokens = len(corpus.encoding.index2word)
 model = model.RNN(args.num_layers, num_tokens, args.emb, args.batch_size, device).to(device)
 criterion = nn.NLLLoss()
-optimizer = torch.optim.Adam(model.parameters())
+optimizer_dict = {'Adam': torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, amsgrad=True),
+                  'ASGD': torch.optim.ASGD(model.parameters(), lr=args.lr, weight_decay=args.weight_decay),
+                  'SGD': torch.optim.SGD(model.parameters(), lr=args.lr, weight_decay=args.weight_decay),
+                  'Adagrad': torch.optim.Adagrad(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, lr_decay=0.0001)}
+optimizer = optimizer_dict[args.optim]
 
 # Train
 def train():
@@ -164,9 +166,10 @@ ax.plot(range(1, args.epochs+1), eval_perplex, label='Validation')
 ax.plot(range(1, args.epochs+1), test_perplex, label='Test')
 ax.legend(loc='upper right')
 plt.ylabel('Perplexity')
+plt.ylim(100, 1500)
 plt.xlabel('Epoch')
 plt.show()
-fig.savefig(f'Figures/perplexity_lr{args.lr}.png')
+fig.savefig(f'Figures/perplexity_lr{args.lr}_{args.optim}_wd{args.weight_decay}.png')
 
 # final perplexity
 print(f'final perplexities: train - {train_perplex[-1]}, eval - {eval_perplex[-1]},'
