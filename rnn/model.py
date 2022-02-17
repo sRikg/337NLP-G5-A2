@@ -19,6 +19,8 @@ class RNN(nn.Module):
         self.activation = nn.Tanh()
         self.h1 = torch.zeros(self.batch_size, 100).to(device)
         self.h2 = torch.zeros(self.batch_size, 100).to(device)
+        self.h1_temp = torch.zeros(self.batch_size, 100)
+        self.h2_temp = torch.zeros(self.batch_size, 100)
         # Tie weights
         self.init_weights()
 
@@ -30,6 +32,8 @@ class RNN(nn.Module):
 
     def forward(self, input):
         logits = torch.tensor(self.num_tokens, device=self.device)
+        self.h1 = self.h1_temp.to(self.device)
+        self.h2 = self.h2_temp.to(self.device)
         # Process a batch of 20 samples in each time step
         for col in range(input.shape[1]):
             curr_input = input[:, col].long().to(self.device)
@@ -51,7 +55,9 @@ class RNN(nn.Module):
         # x = self.dropout(x)
         # x = x.view(-1, self.num_tokens)
 
-        # Reset h1 & h2
+        # Save and Reset h1 & h2
+        self.h1_temp = self.h1.detach()
+        self.h2_temp = self.h2.detach()
         self.h1 = torch.zeros(self.batch_size, 100).to(self.device)
         self.h2 = torch.zeros(self.batch_size, 100).to(self.device)
 

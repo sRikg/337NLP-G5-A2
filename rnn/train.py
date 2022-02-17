@@ -102,7 +102,7 @@ def train():
 
         x = model(data)
         loss = criterion(x, targets)
-        loss.backward()
+        loss.backward(retain_graph=True)
         # UPDATE MODEL PARAMETERS
         optimizer.step()
 
@@ -166,7 +166,7 @@ ax.plot(range(1, args.epochs+1), eval_perplex, label='Validation')
 ax.plot(range(1, args.epochs+1), test_perplex, label='Test')
 ax.legend(loc='upper right')
 plt.ylabel('Perplexity')
-plt.ylim(100, 1500)
+plt.ylim(100, 800)
 plt.xlabel('Epoch')
 plt.show()
 fig.savefig(f'Figures/perplexity_lr{args.lr}_{args.optim}_wd{args.weight_decay}.png')
