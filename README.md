@@ -14,7 +14,7 @@ This repo includes two language models implemented on the wiki text dataset: RNN
 
 - Num Epochs -> 20
 
-### Evaluation metric
+## Evaluation metric
 
 Perplexity
 
@@ -28,3 +28,6 @@ To run the model, run `RNN/train.py`. A list of hyperparameters can be passed in
 LSTM is implemented in a similar manner utilizing LSTM cell provided in PyTorch. Dropout and gradient clipping are applied to avoid gradient explosion and reduce overfitting.
 
 To run the model, run `LSTM.py`. A list of hyperparameters can be passed in as arguments. See the file for details
+
+## Plot
+See `image` folder for the perplexity curve of RNN after each epoch
